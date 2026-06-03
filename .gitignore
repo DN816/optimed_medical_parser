@@ -30,6 +30,7 @@ backend/uploads/
 
 # Debug artifacts
 backend/*.txt
+!backend/requirements.txt
 backend/debug_*.py
 backend/test_*.py
 backend/test_*.png
