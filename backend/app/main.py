@@ -78,7 +78,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # ── CORS ──
 if settings.BACKEND_CORS_ORIGINS:
-    origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
+    origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS]
     # Add explicit 127.0.0.1 variants just in case
     origins.extend(["http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://localhost:3000", "http://localhost:5173"])
     
