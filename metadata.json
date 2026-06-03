@@ -1,0 +1,5 @@
+{
+  "name": "OptiMed ",
+  "description": "An intelligent system that converts messy medical bills into clean, structured, queryable data with high accuracy using Gemini Vision models.",
+  "requestFramePermissions": []
+}
