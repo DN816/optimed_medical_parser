@@ -160,14 +160,37 @@ async def upload_bill(
             detail=f"File too large. Maximum size is {app_settings.MAX_UPLOAD_SIZE_MB}MB."
         )
 
-    # 3. Save File Locally
+    # 3. Save File to Supabase (with Local Fallback)
     bill_id = str(uuid.uuid4())
     ext = file.filename.split('.')[-1] if '.' in file.filename else "jpg"
     filename = f"{bill_id}.{ext}"
-    file_path = os.path.join("uploads", filename)
-
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(contents)
+    
+    file_url = None
+    
+    if app_settings.SUPABASE_URL and app_settings.SUPABASE_KEY:
+        try:
+            from supabase import create_client, Client
+            supabase: Client = create_client(app_settings.SUPABASE_URL, app_settings.SUPABASE_KEY)
+            bucket_name = "optimed-bills"
+            
+            # Upload to Supabase Storage
+            supabase.storage.from_(bucket_name).upload(
+                path=filename,
+                file=contents,
+                file_options={"content-type": file.content_type}
+            )
+            
+            # Get public URL
+            file_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+        except Exception as e:
+            logger.error(f"Failed to upload to Supabase: {e}")
+            
+    if not file_url:
+        # Fallback to local storage
+        file_path = os.path.join("uploads", filename)
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(contents)
+        file_url = f"/uploads/{filename}"
 
     # 4. Process with Hybrid OCR Pipeline
     try:
@@ -217,7 +240,7 @@ async def upload_bill(
         batch_id=batch_id,
         file_name=file.filename,
         file_type=file.content_type,
-        file_url=f"/uploads/{filename}",
+        file_url=file_url,
         status=bill_status,
         confidence_score=final_score,
         ocr_engine=ocr_engine,

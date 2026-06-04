@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # GOOGLE GEMINI
     GOOGLE_API_KEY: str = ""  # Optional — OCR features will fail gracefully if not set
     
+    # SUPABASE STORAGE
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    
     # UPLOAD LIMITS
     MAX_UPLOAD_SIZE_MB: int = 10  # Maximum file size in MB
     
