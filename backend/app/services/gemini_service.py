@@ -170,7 +170,7 @@ CRITICAL EXTRACTION RULES
 8. The grand_total is the FINAL PAYABLE AMOUNT — look for "Net Amount", "Total Payable", "Grand Total", "Bill Amount", or the last/largest total on the document.
 
 ═══════════════════════════════════════════════════════
-HALLUCINATION PREVENTION (CRITICAL)
+HALLUCINATION PREVENTION & NOISE REDUCTION (CRITICAL)
 ═══════════════════════════════════════════════════════
 
 You MUST follow these rules strictly:
@@ -181,7 +181,9 @@ You MUST follow these rules strictly:
 4. Do NOT fill fields with plausible but unverified values (e.g., do not guess a GSTIN just because it looks like one should be there).
 5. Do NOT copy values between unrelated fields (e.g., do not put invoice number in reference number unless both are clearly printed).
 6. extracted_notes should ONLY contain genuinely useful text found in the document — NOT OCR artifacts, repeated header text, or formatting remnants.
-7. Confidence score MUST accurately reflect extraction certainty:
+7. For handwritten or faint text, transcribe EXACTLY what is written. Do not autocorrect unless it is an obvious single-character typo.
+8. Ignore background noise, watermarks, stamps, and irrelevant marketing text on the bill.
+9. Confidence score MUST accurately reflect extraction certainty:
    - 0.9-1.0: Clear, high-quality document, all fields confidently extracted
    - 0.7-0.89: Good quality, most fields extracted, some minor uncertainty
    - 0.5-0.69: Moderate quality, several fields uncertain or missing
