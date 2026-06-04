@@ -58,7 +58,8 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           validation_results: b.validation_results,
           corrections: [],
           flags: _computeFlags(b),
-          fraud_signals: [],
+          fraud_signals: b.validation_results?.fraud_signals || [],
+          sla_deadline: b.validation_results?.sla_deadline || undefined,
           vendor_id: b.vendor_id,
         }));
         setBills(backendBills);
@@ -82,6 +83,7 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (b.confidence_score && b.confidence_score <= 0.8) flags.push('low_confidence');
     if (b.validation_results?.errors && Object.keys(b.validation_results.errors).length > 0) flags.push('data_mismatch');
     if (!b.extracted_data?.totals?.grand_total) flags.push('missing_fields');
+    if (b.validation_results?.fraud_signals && b.validation_results.fraud_signals.length > 0) flags.push('fraud_risk');
     return flags;
   }
 
@@ -318,6 +320,13 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           else if (flags.includes('data_mismatch') || flags.includes('missing_fields')) slaHours = 24;
           const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
+          // Create updated validation results
+          const updatedValidationResults = {
+             ...(data.validation_results || {}),
+             fraud_signals: fraudSignals,
+             sla_deadline: newStatus === 'needs_review' ? slaDeadline : undefined
+          };
+
           setBills(prev => prev.map(b => b.id === bill.id ? {
             ...b,
             id: backendBill.id,  // Use backend's real ID
@@ -330,8 +339,15 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             sla_deadline: newStatus === 'needs_review' ? slaDeadline : undefined,
             vendor_id: vendorId,
             file_url: backendBill.file_url,
+            validation_results: updatedValidationResults,
             _file: undefined,  // Clear file reference
           } : b));
+
+          // Save the frontend-computed status, fraud signals, and SLA back to the backend
+          await api.put(`/bills/${backendBill.id}`, {
+            status: newStatus,
+            validation_results: updatedValidationResults
+          }).catch(e => console.error("Failed to sync fraud checks to backend", e));
 
           // Notification: Bill extraction completed (Suggestion 2 — contextual)
           const vendorName = data?.seller_info?.supplier_name;
