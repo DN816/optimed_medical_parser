@@ -165,7 +165,7 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const updateBill = (billId: string, updates: Partial<Bill>) => {
+  const updateBill = async (billId: string, updates: Partial<Bill>) => {
     setBills(prev => prev.map(bill => {
       if (bill.id === billId) {
         return { ...bill, ...updates };
@@ -177,6 +177,12 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (bill?.batch_id) recalculateBatchStats([bill.batch_id]);
     }
     logAction('UPDATE_BILL', 'BILL', billId, { updates: Object.keys(updates) });
+
+    try {
+      await api.put(`/bills/${billId}`, updates);
+    } catch (err) {
+      console.error("Failed to update bill on backend", err);
+    }
   };
 
   const saveBillWithCorrections = async (billId: string, newData: BillData, status?: Bill['status']) => {
@@ -225,21 +231,28 @@ export const BatchProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const resolveFraudFlag = (billId: string, flagId: string, resolution: 'resolved' | 'ignored', note?: string) => {
-    setBills(prev => prev.map(bill => {
-      if (bill.id === billId && bill.fraud_signals) {
-        return {
-          ...bill,
-          fraud_signals: bill.fraud_signals.map(flag =>
-            flag.id === flagId
-              ? { ...flag, status: resolution, resolved_by: user?.email, resolution_note: note }
-              : flag
-          )
-        };
-      }
-      return bill;
-    }));
+  const resolveFraudFlag = async (billId: string, flagId: string, resolution: 'resolved' | 'ignored', note?: string) => {
+    const bill = bills.find(b => b.id === billId);
+    if (!bill || !bill.fraud_signals) return;
+
+    const newFraudSignals = bill.fraud_signals.map(flag =>
+      flag.id === flagId
+        ? { ...flag, status: resolution, resolved_by: user?.email, resolution_note: note }
+        : flag
+    );
+
+    setBills(prev => prev.map(b => b.id === billId ? { ...b, fraud_signals: newFraudSignals } : b));
     logAction('RESOLVE_FRAUD_FLAG', 'BILL', billId, { flagId, resolution });
+
+    try {
+      const updatedValidationResults = {
+         ...(bill.validation_results || {}),
+         fraud_signals: newFraudSignals
+      };
+      await api.put(`/bills/${billId}`, { validation_results: updatedValidationResults });
+    } catch (err) {
+      console.error("Failed to sync fraud flag resolution to backend", err);
+    }
   };
 
   // Async Processor — uploads queued bills to backend
