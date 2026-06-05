@@ -1,9 +1,11 @@
 import os
 from supabase import create_client, Client
 
-url: str = "https://idumctelwqwojpgcgqor.supabase.co"
-key: str = "REDACTED_SUPABASE_SERVICE_KEY"
+url: str = os.environ.get("SUPABASE_URL", "")
+key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
+if not url or not key:
+    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables must be set.")
 supabase: Client = create_client(url, key)
 
 bucket_name = "optimed-bills"
