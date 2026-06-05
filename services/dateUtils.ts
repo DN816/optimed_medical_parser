@@ -17,7 +17,10 @@ export function formatIST(isoString: string | null | undefined): string {
   if (!isoString) return '—';
 
   try {
-    const date = new Date(isoString);
+    // If backend sends a naive ISO string (e.g. "2026-05-29T13:15:00") without 'Z' or offset,
+    // JS will parse it as local time. We append 'Z' to force it to parse as UTC.
+    const parseString = isoString.endsWith('Z') || isoString.includes('+') ? isoString : `${isoString}Z`;
+    const date = new Date(parseString);
     if (isNaN(date.getTime())) return '—';
 
     const day = new Intl.DateTimeFormat('en-IN', {
@@ -59,7 +62,8 @@ export function timeAgo(isoString: string | null | undefined): string {
   if (!isoString) return '';
 
   try {
-    const date = new Date(isoString);
+    const parseString = isoString.endsWith('Z') || isoString.includes('+') ? isoString : `${isoString}Z`;
+    const date = new Date(parseString);
     if (isNaN(date.getTime())) return '';
 
     const now = new Date();

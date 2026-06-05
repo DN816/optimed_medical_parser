@@ -14,7 +14,18 @@ const ExportContext = createContext<ExportContextType | undefined>(undefined);
 
 export const ExportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logAction } = useAuth();
-  const [jobs, setJobs] = useState<ExportJob[]>([]);
+  const [jobs, setJobs] = useState<ExportJob[]>(() => {
+    try {
+      const saved = localStorage.getItem('optimed_export_jobs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('optimed_export_jobs', JSON.stringify(jobs));
+  }, [jobs]);
 
   // Filter jobs by current org
   const orgJobs = jobs.filter(j => j.org_id === user?.org_id).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
