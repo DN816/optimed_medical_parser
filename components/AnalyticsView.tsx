@@ -4,7 +4,7 @@ import { SimpleBarChart, KPICard } from './AnalyticsCharts';
 import { DateRange, ChartDataPoint } from '../types';
 import { 
   BarChart3, Users, Zap, ShieldAlert, Calendar, Download, 
-  DollarSign, PieChart, Activity, AlertTriangle, CheckCircle, Flag, Loader2
+  DollarSign, PieChart, Activity, AlertTriangle, CheckCircle, Flag, Loader2, Package
 } from 'lucide-react';
 
 interface SpendData {
@@ -20,6 +20,12 @@ interface OpsData {
   autoApprovalRate: number;
   totalProcessed: number;
   chartData: ChartDataPoint[];
+}
+
+interface CategoryItem {
+  category: string;
+  amount: number;
+  percentage: number;
 }
 
 interface VendorRow {
@@ -41,6 +47,7 @@ export const AnalyticsView: React.FC = () => {
   const [opsData, setOpsData] = useState<OpsData | null>(null);
   const [vendorData, setVendorData] = useState<VendorRow[]>([]);
   const [summaryData, setSummaryData] = useState<any>(null);
+  const [categoryData, setCategoryData] = useState<CategoryItem[]>([]);
 
   // Fetch summary (used for risk tab)
   useEffect(() => {
@@ -70,6 +77,10 @@ export const AnalyticsView: React.FC = () => {
         });
       })
       .catch(err => console.error('Failed to load spend analytics', err));
+    // Also fetch category breakdown
+    api.get(`/analytics/spend-by-category?range=${dateRange}`)
+      .then(res => setCategoryData(res.data || []))
+      .catch(err => console.error('Failed to load category analytics', err));
   }, [activeTab, dateRange, summaryData]);
 
   // Fetch ops data
@@ -135,15 +146,51 @@ export const AnalyticsView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <h3 className="font-bold text-slate-800 mb-6">Monthly Spend Trend</h3>
-                <SimpleBarChart data={spendData?.chartData || []} formatValue={currency} color="bg-blue-600" />
+                {(spendData?.chartData || []).length === 0 ? (
+                  <div className="h-48 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <BarChart3 className="w-8 h-8 opacity-30" />
+                    <p className="text-sm">No completed bills found for this period.</p>
+                    <p className="text-xs text-slate-300">Process and complete some bills to see spend trends.</p>
+                  </div>
+                ) : (
+                  <SimpleBarChart data={spendData?.chartData || []} formatValue={currency} color="bg-blue-600" />
+                )}
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <h3 className="font-bold text-slate-800 mb-4">Spend by Category</h3>
-                <div className="space-y-4">
-                    <div className="p-4 text-center text-sm text-slate-500">
-                        Category classification is pending processing of line items.
-                    </div>
-                </div>
+                {categoryData.length === 0 ? (
+                  <div className="h-48 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <Package className="w-8 h-8 opacity-30" />
+                    <p className="text-sm text-center">No categorised items yet.</p>
+                    <p className="text-xs text-slate-300 text-center">Categories are derived from invoice line items.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {categoryData.map((cat, i) => {
+                      const colors = [
+                        'bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500',
+                        'bg-pink-500', 'bg-rose-500', 'bg-orange-500', 'bg-amber-500'
+                      ];
+                      return (
+                        <div key={i}>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs font-medium text-slate-700 truncate max-w-[60%]">{cat.category}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-slate-800">{currency(cat.amount)}</span>
+                              <span className="text-[10px] text-slate-400">({cat.percentage}%)</span>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${colors[i % colors.length]}`}
+                              style={{ width: `${cat.percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
             </div>
         </div>
     </div>
@@ -219,7 +266,15 @@ export const AnalyticsView: React.FC = () => {
 
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-6">Processing Volume (Last 14 Days)</h3>
-            <SimpleBarChart data={opsData?.chartData || []} height={250} color="bg-indigo-500" />
+            {(opsData?.chartData || []).length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 text-slate-400" style={{ height: '250px' }}>
+                <Activity className="w-8 h-8 opacity-30" />
+                <p className="text-sm">No processing data for this period.</p>
+                <p className="text-xs text-slate-300">Upload and process bills to see volume trends.</p>
+              </div>
+            ) : (
+              <SimpleBarChart data={opsData?.chartData || []} height={250} color="bg-indigo-500" />
+            )}
         </div>
     </div>
   );

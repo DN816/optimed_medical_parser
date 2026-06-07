@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Float, extract
 from datetime import datetime, timezone, timedelta
+from collections import defaultdict
 
 from app.api import deps
 from app.models.user import User
@@ -149,16 +150,20 @@ def analytics_ops(
         if status == "completed" and (score or 0) > 0.8
     )
 
-    # Daily volume (last 14 days)
-    daily: dict = {}
+    # Daily volume (last 14 days) — track raw datetime for correct sort
+    daily: dict = {}           # key -> count
+    daily_dt: dict = {}        # key -> representative datetime for sorting
     for _, _, created_at in bills_data:
         if created_at:
             key = created_at.strftime("%d %b")
             daily[key] = daily.get(key, 0) + 1
+            if key not in daily_dt:
+                daily_dt[key] = created_at
 
-    # Take last 14 entries
-    chart_items = list(daily.items())[-14:]
-    chart_data = [{"label": k, "value": v} for k, v in chart_items]
+    # Sort chronologically using the stored datetime, then take last 14 days
+    sorted_keys = sorted(daily.keys(), key=lambda k: daily_dt[k])
+    chart_items = sorted_keys[-14:]
+    chart_data = [{"label": k, "value": daily[k]} for k in chart_items]
 
     return {
         "accuracy": round((total_confidence / total) * 100, 1) if total > 0 else 0,
@@ -194,6 +199,114 @@ def analytics_vendors(
         })
 
     return result
+
+
+@router.get("/spend-by-category")
+def analytics_spend_by_category(
+    range: str = Query("all", description="Date range: 30d, 90d, 1y, all"),
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user)
+) -> Any:
+    """Aggregate spend by medical category derived from BillItem HSN codes and product names."""
+    from app.models.bill_item import BillItem
+
+    cutoff = _date_cutoff(range)
+    query = db.query(Bill).filter(
+        Bill.org_id == current_user.org_id,
+        Bill.status == "completed"
+    )
+    if cutoff:
+        query = query.filter(Bill.created_at >= cutoff)
+
+    bill_ids = [b.id for b in query.with_entities(Bill.id).all()]
+
+    if not bill_ids:
+        # Fall back to extracting from extracted_data JSON if no BillItem rows
+        bills_data = query.with_entities(Bill.extracted_data).limit(500).all()
+        category_totals: dict = defaultdict(float)
+        for (ext_data,) in bills_data:
+            if not ext_data:
+                continue
+            items = ext_data.get("invoice_items") or []
+            for item in items:
+                hsn = str(item.get("hsn_code") or "").strip()
+                name = str(item.get("product_name") or "").lower()
+                total = float(item.get("total") or item.get("taxable_amount") or 0)
+                category = _classify_item(hsn, name)
+                category_totals[category] += total
+    else:
+        # Use BillItem table if populated
+        item_rows = db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids)).all()
+        category_totals = defaultdict(float)
+        if item_rows:
+            for item in item_rows:
+                hsn = str(item.hsn_code or "").strip()
+                name = str(item.product_name or "").lower()
+                total = float(item.total or item.taxable_amount or 0)
+                category = _classify_item(hsn, name)
+                category_totals[category] += total
+        else:
+            # BillItem table empty — parse from JSON
+            bills_data = query.with_entities(Bill.extracted_data).limit(500).all()
+            for (ext_data,) in bills_data:
+                if not ext_data:
+                    continue
+                items = ext_data.get("invoice_items") or []
+                for item in items:
+                    hsn = str(item.get("hsn_code") or "").strip()
+                    name = str(item.get("product_name") or "").lower()
+                    total = float(item.get("total") or item.get("taxable_amount") or 0)
+                    category = _classify_item(hsn, name)
+                    category_totals[category] += total
+
+    # Sort by spend descending, return top 8
+    sorted_cats = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)[:8]
+    total_all = sum(v for _, v in sorted_cats) or 1
+
+    return [
+        {
+            "category": cat,
+            "amount": round(amount, 2),
+            "percentage": round((amount / total_all) * 100, 1)
+        }
+        for cat, amount in sorted_cats
+        if amount > 0
+    ]
+
+
+def _classify_item(hsn: str, name: str) -> str:
+    """Classify a medical item into a category based on HSN code prefix or product name keywords."""
+    # HSN-based classification (Indian pharmaceutical HSN codes)
+    if hsn:
+        prefix = hsn[:4]
+        if prefix in ("3003", "3004"):
+            return "Medicines & Drugs"
+        if prefix in ("3002",):
+            return "Vaccines & Biologicals"
+        if prefix.startswith("9018") or prefix.startswith("9019"):
+            return "Surgical Instruments"
+        if prefix.startswith("3005") or prefix.startswith("3006"):
+            return "Medical Consumables"
+        if prefix.startswith("9021"):
+            return "Orthopaedic Implants"
+        if prefix.startswith("3822") or prefix.startswith("3821"):
+            return "Diagnostics & Reagents"
+
+    # Keyword-based fallback
+    keywords = {
+        "Medicines & Drugs": ["tablet", "capsule", "syrup", "injection", "mg", "ml", "drops", "ointment", "cream", "gel", "patch", "inhaler"],
+        "Surgical Instruments": ["surgical", "forcep", "scalpel", "catheter", "cannula", "needle", "suture", "glove", "scissors", "clamp"],
+        "Medical Consumables": ["bandage", "gauze", "cotton", "dressing", "syringe", "iv set", "drip", "mask", "gloves", "tape", "plaster"],
+        "Diagnostics & Reagents": ["test", "strip", "reagent", "kit", "diagnostic", "glucose", "urine", "culture"],
+        "Vaccines & Biologicals": ["vaccine", "immunization", "serum", "antigen", "antibody", "toxoid"],
+        "Orthopaedic Implants": ["implant", "screw", "plate", "nail", "prosthes", "bone", "joint"],
+        "Vitamins & Supplements": ["vitamin", "mineral", "supplement", "calcium", "iron", "zinc", "omega"],
+    }
+    for category, kws in keywords.items():
+        if any(kw in name for kw in kws):
+            return category
+
+    return "Other Medical Supplies"
 
 
 @router.get("/recent-bills")
